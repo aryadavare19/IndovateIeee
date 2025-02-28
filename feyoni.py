@@ -1,97 +1,94 @@
 import streamlit as st
 import google.generativeai as genai
-import os
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-# Set page config first
+# Set up Streamlit UI
 st.set_page_config(page_title="Healthcare AI Chatbot", layout="wide")
 
 # Configure Gemini API
-genai.configure(api_key="AIzaSyAL6aVguGx_Ta60pnYWXdMbKIhorNBqgqU")  # Replace with your actual API key
+genai.configure(api_key="IzaSyAL6aVguGx_Ta60pnYWXdMbKIhorNBqgqU")  # Replace with your actual API key
 
+# Initialize Firebase
+if not firebase_admin._apps:
+    cred = credentials.Certificate("C:\\Users\\User\\Downloads\\indovateieee-firebase-adminsdk-fbsvc-3a690188cc.json")  # Replace with your file path
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
+
+# Load Gemini Model
 @st.cache_resource
 def load_model():
     return genai.GenerativeModel("gemini-1.5-pro-latest")
 
 model = load_model()
 
-@st.cache_data
-def get_gemini_response(prompt):
+# Retrieve chat history for a specific user
+def load_chat_history():
+    chats = db.collection("chats").order_by("timestamp").stream()
+    return [(chat.get("user_message"), chat.get("ai_response")) for chat in chats]
+
+# Generate response with chat history for context
+def get_gemini_response(user_input, chat_history):
+    # Format past chats to provide context
+    context = "\n".join([f"User: {msg}\nAI: {resp}" for msg, resp in chat_history[-5:]])  # Use last 5 messages for context
+    prompt = f"{context}\nUser: {user_input}\nAI:"
+    
+    # Get response from Gemini
     response = model.generate_content(prompt)
     return response.text
 
-st.markdown(
-     """
-    <style>
-    body {
-        background-color: #ffebee;
+# Store chat in Firestore
+def save_chat_to_firebase(user_input, response):
+    chat_data = {
+        "user_message": user_input,
+        "ai_response": response,
+        "timestamp": firestore.SERVER_TIMESTAMP
     }
-    .main-title {
-        text-align: center;
-        color: #b71c1c;
-    }
-    .chat-container {
-        background-color: #ffcdd2;
-        padding: 20px;
-        border-radius: 10px;
-    }
-    .button-container {
-        text-align: center;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+    db.collection("chats").add(chat_data)
 
 # Home Page
 if "page" not in st.session_state:
     st.session_state.page = "home"
 
 if st.session_state.page == "home":
-    st.markdown("<h1 class='main-title'>🏥 Healthcare AI Chatbot</h1>", unsafe_allow_html=True)
-    # st.image(os.path.join(os.getcwd(),"static","SBQ-Hard-Work.jpg"))
-    st.write("Welcome to the AI-powered healthcare assistant. Click the chatbot icon below to start chatting.")
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("🤖 Open Chatbot", key="chatbot_btn", use_container_width=True):
-            st.session_state.page = "chatbot"
-            st.rerun()
+    st.markdown("<h1 style='text-align:center;'>🏥 Healthcare AI Chatbot</h1>", unsafe_allow_html=True)
+    st.write("Welcome to the AI-powered healthcare assistant. Click below to start chatting.")
+
+    if st.button("🤖 Open Chatbot", key="chatbot_btn", use_container_width=True):
+        st.session_state.page = "chatbot"
+        st.session_state.chat_history = load_chat_history()  # Load previous chats
+        st.rerun()
 
 elif st.session_state.page == "chatbot":
-    st.markdown("<h1 class='main-title'>🤖 Gemini AI Chatbot</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center;'>🤖 Gemini AI Chatbot</h1>", unsafe_allow_html=True)
     st.write("Chat with Gemini-powered AI")
-    
-    # Initialize chat history if not already present
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
 
-    # Chat interface
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = load_chat_history()
+
     chat_container = st.container()
     with chat_container:
-        st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
-        for role, message in st.session_state.chat_history:
-            with st.chat_message(role):
-                st.markdown(message)
-        st.markdown("</div>", unsafe_allow_html=True)
+        for user_msg, ai_msg in st.session_state.chat_history:
+            with st.chat_message("You"):
+                st.markdown(user_msg)
+            with st.chat_message("AI"):
+                st.markdown(ai_msg)
 
-    # User Input
     user_input = st.chat_input("Type your message...")
 
     if user_input:
         with st.chat_message("You"):
             st.markdown(user_input)
-        
-        response = get_gemini_response(user_input)
-        
+
+        response = get_gemini_response(user_input, st.session_state.chat_history)
+
         with st.chat_message("AI"):
             st.markdown(response)
-        
-        # Store chat history
-        st.session_state.chat_history.append(("You", user_input))
-        st.session_state.chat_history.append(("AI", response))
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("🏠 Back to Home", key="home_btn", use_container_width=True):
-            st.session_state.page = "home"
-            st.rerun()
+
+        st.session_state.chat_history.append((user_input, response))
+        save_chat_to_firebase(user_input, response)  # Store chat in Firestore
+
+    if st.button("🏠 Back to Home", key="home_btn", use_container_width=True):
+        st.session_state.page = "home"
+        st.rerun()
