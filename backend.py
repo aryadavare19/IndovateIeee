@@ -2,12 +2,14 @@ import streamlit as st
 import google.generativeai as genai
 import firebase_admin
 from firebase_admin import credentials, firestore
+import speech_recognition as sr
+import pyttsx3
 
 # Set up Streamlit UI
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
 # Configure Gemini AI (Medical Assistant Mode)
-genai.configure(api_key="AIzaSyArJov7xa3ARwH9YcqkSdb9GlzhPnj5uII")  # Replace with your actual API key
+genai.configure(api_key="YOUR_API_KEY")  # Replace with your actual API key
 
 # Initialize Firebase (Ensure New Sessions Don't Load Old Chats)
 if not firebase_admin._apps:
@@ -22,6 +24,25 @@ def load_model():
     return genai.GenerativeModel("gemini-1.5-pro-latest")
 
 model = load_model()
+
+# Initialize Text-to-Speech Engine
+tts_engine = pyttsx3.init()
+def speak(text):
+    tts_engine.say(text)
+    tts_engine.runAndWait()
+
+# Speech-to-Text Function
+def speech_to_text():
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        st.write("Listening...")
+        try:
+            audio = recognizer.listen(source, timeout=5)
+            return recognizer.recognize_google(audio)
+        except sr.UnknownValueError:
+            return "Could not understand audio. Please try again."
+        except sr.RequestError:
+            return "Speech recognition service is unavailable."
 
 # Generate Medical Response
 def get_medical_response(user_input, chat_history):
@@ -59,7 +80,13 @@ elif st.session_state.page == "chatbot":
             with st.chat_message("AI"):
                 st.markdown(ai_msg)
 
-    user_input = st.chat_input("Ask me anything about health...")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        user_input = st.chat_input("Ask me anything about health...")
+    with col2:
+        if st.button("🎤 Speak", key="voice_input_btn", use_container_width=True):
+            user_input = speech_to_text()
+            st.write(f"You said: {user_input}")
 
     if user_input:
         with st.chat_message("You"):
@@ -69,6 +96,7 @@ elif st.session_state.page == "chatbot":
 
         with st.chat_message("AI"):
             st.markdown(response)
+            speak(response)  # Convert AI response to speech
 
         st.session_state.chat_history.append((user_input, response))
 
