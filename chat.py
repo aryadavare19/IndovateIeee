@@ -55,7 +55,17 @@ model = load_model()
 
 # Generate Medical Response
 def get_medical_response(user_input, chat_history):
-    context = "You are a professional medical assistant. Answer questions related to health and medicine with accurate, reliable information. If a query is outside medical knowledge, state that you cannot provide advice."
+    context = "You are a professional medical assistant. Answer questions related to health and medicine with accurate, reliable information. Format your responses as follows:\n\n"
+    
+    #context += "**<IDENTIFY IMAGE/DISEASE/PROBLEM>**\n**<SYMPTOMS>**\n**<PRECAUTIONS>**\n**<DIET OR EXERCISE IF NECESSARY>**\n**<WHEN TO SEE DOCTOR>**\n"
+    context += "**<IDENTIFY IMAGE/DISEASE/PROBLEM>**\n"
+    context += "**<SYMPTOMS>**\n"
+    context += "**<PRECAUTIONS>**\n"
+    context += "**<DIET OR EXERCISE IF NECESSARY>**\n"
+    context += "**<WHEN TO SEE DOCTOR>**\n"
+  
+    context += "If a query is outside medical knowledge, state that you cannot provide advice."
+    
     past_chats = "\n".join([f"User: {msg}\nAI: {resp}" for msg, resp in chat_history[-5:]])  # Use last 5 messages for context
     prompt = f"{context}\n{past_chats}\nUser: {user_input}\nAI:"
     
@@ -64,10 +74,23 @@ def get_medical_response(user_input, chat_history):
 
 # Analyze Medical Image and Store in Firebase & Session State
 def analyze_medical_image(image):
+    if st.session_state.get("last_uploaded_image") == image:
+        return st.session_state.image_analysis_result
     response = model.generate_content([
-        "Analyze the given medical image and provide insights:",
-        image  # Directly passing the PIL image instead of raw bytes
+    "Analyze the given medical image and provide insights in the required format:\n\n"
+    "**<IDENTIFY IMAGE/DISEASE/PROBLEM>**\n"
+    "**<SYMPTOMS>**\n"
+    "**<PRECAUTIONS>**\n"
+    "**<DIET OR EXERCISE IF NECESSARY>**\n"
+    "**<WHEN TO SEE DOCTOR>**",
+    image
     ])
+
+    # response = model.generate_content([
+    #     "Analyze the given medical image and provide insights in the required format:\n\n"
+    #     "**<IDENTIFY IMAGE/DISEASE/PROBLEM>**\n**<SYMPTOMS>**\n**<PRECAUTIONS>**\n**<DIET OR EXERCISE IF NECESSARY>**\n**<WHEN TO SEE DOCTOR>**",
+    #     image  # Directly passing the PIL image instead of raw bytes
+    # ])
     
     analysis_result = response.text
     
@@ -78,6 +101,7 @@ def analyze_medical_image(image):
     
     # Store in session state to remember response
     st.session_state.image_analysis_result = analysis_result
+    st.session_state.last_uploaded_image = image
     
     return analysis_result
 
@@ -102,6 +126,8 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []  # Reset chat history on restart
 if "image_analysis_result" not in st.session_state:
     st.session_state.image_analysis_result = None  # Store last image analysis result
+if "last_uploaded_image" not in st.session_state:
+    st.session_state.last_uploaded_image = None
 
 if st.session_state.page == "home":
     st.markdown("<h1 style='text-align:center;'>&#127973; Medical AI Assistant</h1>", unsafe_allow_html=True)
@@ -139,24 +165,3 @@ elif st.session_state.page == "chatbot":
             st.markdown(response)
 
         st.session_state.chat_history.append((user_input, response))
-    
-    # Image Upload and Analysis
-    uploaded_image = st.file_uploader("➕ Upload a medical image (X-ray, skin rash, etc.) for AI analysis:", type=["png", "jpg", "jpeg"])
-    if uploaded_image is not None:
-        image = Image.open(uploaded_image)
-        st.image(image, caption="📷 Uploaded Image", use_column_width=True)
-        
-        with st.spinner("🔍 Analyzing Image..."):
-            analysis_result = analyze_medical_image(image)
-            st.session_state.image_analysis_result = analysis_result
-            
-    # Display last analyzed image response
-    if st.session_state.image_analysis_result:
-        st.subheader("🩺 AI Analysis Result:")
-        st.write(st.session_state.image_analysis_result)
-    
-    if st.button("🏠 Back to Home", key="home_btn", use_container_width=True):
-        st.session_state.page = "home"
-        st.session_state.chat_history = []  # Clear chat history when returning home
-        st.session_state.image_analysis_result = None  # Reset stored image analysis result
-        st.rerun()
